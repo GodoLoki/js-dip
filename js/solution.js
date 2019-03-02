@@ -279,23 +279,296 @@ function wss() {
 // Комментарии. Добавление, скрытие
 
 function createWrapCanvasComments() {
+    const width = getComputedStyle(currentImage).width;
+    const height = getComputedStyle(currentImage).height;
+    wrapCanvasComments.style.top = '50%';
+    wrapCanvasComments.style.left = '50%';
+    wrapCanvasComments.style.width = width;
+    wrapCanvasComments.style.height = height;
+    wrapCanvasComments.style.position = 'absolute';
+    wrapCanvasComments.style.transform = 'translate(-50%, -50%)';
+    wrapCanvasComments.style.display = 'block';
+    wrap.appendChild(wrapCanvasComments);
+    wrapCanvasComments.addEventListener('click', event => {
+        if (event.target.closest('.comments__form')) {
+        const currentForm = event.target.closest('.comments__form');
+        Array.from(wrapCanvasComments.querySelectorAll('.comments__form')).forEach(form => {
+            form.style.zIndex = 2;
+    });
+        currentForm.style.zIndex = 3;
 
+        deleteEmptyForms(currentForm);
+        minAllComment(currentForm);
+    }
+});
 }
 
 function insertCommentFromWss(wsComment) {
+    const wsCommentEdited = {};
+    wsCommentEdited[wsComment.id] = {};
+    wsCommentEdited[wsComment.id].left = wsComment.left;
+    wsCommentEdited[wsComment.id].message = wsComment.message;
+    wsCommentEdited[wsComment.id].timestamp = wsComment.timestamp;
+    wsCommentEdited[wsComment.id].top = wsComment.top;
+    updateComments(wsCommentEdited);
+}
 
+// скрыть показать
+commentsOnInput.addEventListener('change', checkCommentsState);
+commentsOffInput.addEventListener('change', checkCommentsState);
+
+function checkCommentsState() {
+    if (commentsOnInput.checked) {
+        document.querySelectorAll('.comments__form').forEach(form => {
+            form.style.display = '';
+    })
+    } else {
+        document.querySelectorAll('.comments__form').forEach(form => {
+            form.style.display = 'none';
+    })
+    }
+}
+
+// сворачиваем неактивные комменты
+function  minAllComment(currentForm = null) {
+    document.querySelectorAll('.comments__form').forEach(form => {
+        if (form !== currentForm) {
+        form.querySelector('.comments__marker-checkbox').checked = false;
+    }
+});
+}
+
+// убираем пустые
+function deleteEmptyForms(currentForm = null) {
+    document.querySelectorAll('.comments__form').forEach(form => {
+        if (form.querySelectorAll('.comment').length < 2 && form !== currentForm) {
+        form.remove();
+    }
+});
 }
 
 function removeComents() {
     // удаляем комменты при новой загрузке приложения
+    const formComment = wrap.querySelectorAll('.comments__form');
+    Array.from(formComment).forEach(item => {item.remove()})
 }
 
+// создать
+canvas.addEventListener('click', (event) => {
+    if (comments.dataset.state !== 'selected' || !commentsOnInput.checked) return;
+deleteEmptyForms();
+minAllComment();
+const newComment = createNewForm();
+newComment.querySelector('.comments__marker-checkbox').checked = true;
+const coordX = event.offsetX - 22;
+const coordY = event.offsetY - 14;
+newComment.style.left = coordX + 'px';
+newComment.style.top = coordY + 'px';
+newComment.dataset.left = coordX;
+newComment.dataset.top = coordY;
+wrapCanvasComments.appendChild(newComment);
+});
 
 
-// Рисование
+// форма для комментариев
+function createNewForm() {
+    const newForm = document.createElement('form');
+    newForm.classList.add('comments__form');
+    newForm.innerHTML = `
+        <span class="comments__marker"></span><input type="checkbox" class="comments__marker-checkbox">
+        <div class="comments__body">
+            <div class="comment">
+                <div class="loader">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                </div>
+            </div>
+            <textarea class="comments__input" type="text" placeholder="Напишите ответ..."></textarea>
+            <input class="comments__close" type="button" value="Закрыть">
+            <input class="comments__submit" type="submit" value="Отправить">
+        </div>`;
+    newForm.style.display = '';
+    newForm.style.zIndex = 2;
+
+    newForm.querySelector('.loader').parentElement.style.display = 'none';
+
+    // закрыть
+    newForm.querySelector('.comments__close').addEventListener('click', () => {
+        if (newForm.querySelectorAll('.comment').length > 1) {
+        newForm.querySelector('.comments__marker-checkbox').checked = false;
+    } else {
+
+        newForm.remove();
+    }
+});
+
+    // отправляем
+    newForm.addEventListener('submit', event => {
+        event.preventDefault();
+    const message = newForm.querySelector('.comments__input').value;
+    const body = `message=${encodeURIComponent(message)}&left=${encodeURIComponent(newForm.dataset.left)}&top=${encodeURIComponent(newForm.dataset.top)}`;
+    newForm.querySelector('.loader').parentElement.style.display = '';
+
+    fetch(`https://neto-api.herokuapp.com/pic/${pictureID}/comments`, {
+        body: body,
+        credentials: 'same-origin',
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded'
+        }
+    })
+        .then(res => {
+        if (res.status >= 400) throw res.statusText;
+    return res;
+})
+.then(res => res.json())
+.then(res => {
+        updateComments(res.comments);
+    newForm.querySelector('.comments__input').value = '';
+})
+.catch(err => {
+        console.log(err);
+    newForm.querySelector('.loader').parentElement.style.display = 'none';
+});
+});
+
+    return newForm;
+}
+
+// отрисовываем комментарии
+function updateComments(newComments) {
+    if (!newComments) return;
+    Object.keys(newComments).forEach(id => {
+        if (id in showComments) return;
+    showComments[id] = newComments[id];
+    let needCreateNewForm = true;
+    document.querySelectorAll('.comments__form').forEach(form => {
+        if (+form.dataset.left === showComments[id].left && +form.dataset.top === showComments[id].top) {
+        form.querySelector('.loader').parentElement.style.display = 'none';
+        addComentIntoForm(newComments[id], form);
+        needCreateNewForm = false;
+    }
+});
+    if (needCreateNewForm) {
+        const newForm = createNewForm();
+        newForm.dataset.left = newComments[id].left;
+        newForm.dataset.top = newComments[id].top;
+        newForm.style.left = newComments[id].left + 'px';
+        newForm.style.top = newComments[id].top + 'px';
+        addComentIntoForm(newComments[id], newForm);
+        wrapCanvasComments.appendChild(newForm);
+        if (!commentsOnInput.checked) {
+            newForm.style.display = 'none';
+        }
+    }
+});
+}
+
+// добавляем новые сообщения в форму
+function addComentIntoForm(newMsg, form) {
+    function getDate(timestamp) {
+        const options = {
+            day: 'numeric',
+            month: 'numeric',
+            year: 'numeric',
+            hour: 'numeric',
+            minute: 'numeric',
+            second: 'numeric'
+        };
+        const date = new Date(timestamp);
+        const dateStr = date.toLocaleString(options);
+        return dateStr.slice(0, 6) + dateStr.slice(8, 10) + dateStr.slice(11);
+    }
+
+    let timestamp = Number.MAX_VALUE;
+    let theNearestLowerDiv = form.querySelector('.loader').parentElement;
+    form.querySelectorAll('.user__comment').forEach(msgDiv => {
+        const currMsgTimestamp = +msgDiv.dataset.timestamp;
+
+    if (currMsgTimestamp < newMsg.timestamp) return;
+    if (currMsgTimestamp < timestamp) {
+        timestamp = currMsgTimestamp;
+        theNearestLowerDiv = msgDiv;
+    }
+});
+    const newMsgDiv = document.createElement('div');
+    newMsgDiv.classList.add('comment');
+    newMsgDiv.classList.add('user__comment');
+    newMsgDiv.dataset.timestamp = newMsg.timestamp;
+    const pCommentTime = document.createElement('p');
+    pCommentTime.classList.add('comment__time');
+    pCommentTime.textContent = getDate(newMsg.timestamp);
+    newMsgDiv.appendChild(pCommentTime);
+    const pCommentMessage = document.createElement('p');
+    pCommentMessage.classList.add('comment__message');
+    pCommentMessage.textContent = newMsg.message;
+    newMsgDiv.appendChild(pCommentMessage);
+    form.querySelector('.comments__body').insertBefore(newMsgDiv, theNearestLowerDiv);
+}
+
+function sendMaskState() {
+    canvas.toBlob(blob => {
+        if (!connection) return;
+    connection.send(blob);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+});
+}
+
+// Рисование (доделаю в понедельник или вторник)
+
+const ctx = canvas.getContext('2d'),
+      BRUSH_RADIUS = 4; 
+let curves = [],
+    drawing = false,
+    needsRepaint = false,
+    brushColor = 'green'; 
 
 function createCanvas() {
+    const width = getComputedStyle(currentImage).width.slice(0, 0);
+    const height = getComputedStyle(currentImage).height.slice(0, 0);
+    canvas.width = width;
+    canvas.height = height;
+    canvas.style.width = '100%';
+    canvas.style.height = '100%';
+    canvas.style.position = 'absolute';
+    canvas.style.top = '0';
+    canvas.style.left = '0';
+    canvas.style.display = 'block';
+    canvas.style.zIndex = '1';
+    wrapCanvasComments.appendChild(canvas);
 
+    curves = [];
+    drawing = false;
+    needsRepaint = false;
 }
 
+//цвета
+document.querySelectorAll('.menu__color').forEach(colorInput => {
+    colorInput.addEventListener('change', () => {
+    if (!colorInput.checked) return;
+brushColor = colorInput.value;
+});
+});
+
+
+
+
+
+
 onFirstStart();  // приложение запускается в базовом варианте
+window.addEventListener('beforeunload', () => {
+    connection.close(1000);
+});
+
+
+
+
+
+// копировать ссылку
+document.querySelector('.menu_copy').addEventListener('click', (event) => {
+    urlForShare.select();
+document.execCommand('copy');
+})
