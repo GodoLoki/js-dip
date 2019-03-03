@@ -57,7 +57,7 @@ function moveMenu(event) {
         event.preventDefault();
         let x = event.pageX - shiftX;
         let y = event.pageY - shiftY;
-        x = Math.min(x, maxX);
+        x = Math.min(x, maxX-10); //вот так если сделать, то оно будет недоводить до самого края, но не разваливается
         y = Math.min(y, maxY);
         x = Math.max(x, minX);
         y = Math.max(y, minY);
