@@ -57,7 +57,7 @@ function moveMenu(event) {
         event.preventDefault();
         let x = event.pageX - shiftX;
         let y = event.pageY - shiftY;
-        x = Math.min(x, maxX-10); //вот так если сделать, то оно будет недоводить до самого края, но не разваливается
+        x = Math.min(x, maxX);
         y = Math.min(y, maxY);
         x = Math.max(x, minX);
         y = Math.max(y, minY);
@@ -85,8 +85,15 @@ function throttle(callback) {
     };
 }
 
-//  Переключение режимов меню
+//  при изменении размера окна браузера и изменении высоты меню
+function checkMenuHeight() {
+    if (menu.offsetHeight > 66) {
+        menu.style.left = '0px'
+        menu.style.left = `${wrap.offsetWidth - menu.offsetWidth - 1}px`
+    }
+}
 
+//  Переключение режимов меню
 burger.addEventListener('click', () => {
     menu.dataset.state = 'default';
 menuModeElements.forEach(elem => elem.dataset.state = '');
@@ -517,8 +524,7 @@ function sendMaskState() {
 });
 }
 
-// Рисование (доделаю в понедельник или вторник)
-
+// Рисование 
 const ctx = canvas.getContext('2d'),
       BRUSH_RADIUS = 4; 
 let curves = [],
@@ -526,9 +532,17 @@ let curves = [],
     needsRepaint = false,
     brushColor = 'green'; 
 
+//цвета
+document.querySelectorAll('.menu__color').forEach(colorInput => {
+    colorInput.addEventListener('change', () => {
+    if (!colorInput.checked) return;
+brushColor = colorInput.value;
+});
+});
+
 function createCanvas() {
-    const width = getComputedStyle(currentImage).width.slice(0, 0);
-    const height = getComputedStyle(currentImage).height.slice(0, 0);
+    const width = getComputedStyle(currentImage).width.slice(0, -2);
+    const height = getComputedStyle(currentImage).height.slice(0, -2);
     canvas.width = width;
     canvas.height = height;
     canvas.style.width = '100%';
@@ -539,19 +553,128 @@ function createCanvas() {
     canvas.style.display = 'block';
     canvas.style.zIndex = '1';
     wrapCanvasComments.appendChild(canvas);
-
     curves = [];
     drawing = false;
     needsRepaint = false;
 }
 
-//цвета
-document.querySelectorAll('.menu__color').forEach(colorInput => {
-    colorInput.addEventListener('change', () => {
-    if (!colorInput.checked) return;
-brushColor = colorInput.value;
+canvas.addEventListener("mousedown", (event) => {
+    if (draw.dataset.state !== 'selected') return;
+drawing = true;
+const curve = []; 
+curve.color = brushColor; 
+curve.push(makePoint(event.offsetX, event.offsetY));
+curves.push(curve);
+needsRepaint = true;
 });
+
+
+canvas.addEventListener("mouseup", (event) => {
+    drawing = false;
 });
+
+canvas.addEventListener("mouseleave", (event) => {
+    drawing = false;
+});
+
+canvas.addEventListener("mousemove", (event) => {
+    if (drawing) {
+        curves[curves.length - 1].push(makePoint(event.offsetX, event.offsetY));
+        needsRepaint = true;
+    }
+});
+
+// точка
+function circle(point) {
+    ctx.beginPath();
+    ctx.arc(...point, BRUSH_RADIUS / 2, 0, 2 * Math.PI);
+    ctx.fill();
+}
+
+// линия между двумя точками
+function smoothCurveBetween (p1, p2) {
+    const cp = p1.map((coord, idx) => (coord + p2[idx]) / 2);
+    ctx.quadraticCurveTo(...p1, ...cp);
+}
+
+function smoothCurve(points) {
+    ctx.beginPath();
+    ctx.lineWidth = BRUSH_RADIUS;
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+
+    ctx.moveTo(...points[0]);
+
+    for(let i = 1; i < points.length - 1; i++) {
+        smoothCurveBetween(points[i], points[i + 1]);
+    }
+
+    ctx.stroke();
+}
+
+// координаты курсора
+function makePoint(x, y) {
+    return [x, y];
+}
+
+// перерисовка canvas
+function repaint () {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    curves.forEach((curve) => {
+        ctx.strokeStyle = curve.color;
+    ctx.fillStyle = curve.color;
+
+    circle(curve[0]);
+    smoothCurve(curve);
+});
+}
+
+function tick () {
+    checkMenuHeight();
+    if(needsRepaint) {
+        repaint();
+        needsRepaint = false;
+        debounceSendMask()
+    }
+    window.requestAnimationFrame(tick);
+}
+
+
+const debounceSendMask = debounce(sendMaskState, 2000);
+
+// отправляем данные не чаще 1 раза в несколько секунд
+function throttle(callback, delay) {
+    let isWaiting = false;
+    return function (...rest) {
+        if (!isWaiting) {
+            callback.apply(this, rest);
+            isWaiting = true;
+            setTimeout(() => {
+                isWaiting = false;
+        }, delay);
+        }
+    };
+}
+
+function debounce(callback, delay) {
+    let timeout;
+    return () => {
+        clearTimeout(timeout);
+        timeout = setTimeout(() => {
+            timeout = null;
+        callback();
+    }, delay);
+    };
+}
+
+// отправка канвас на сервер
+function sendMaskState() {
+    canvas.toBlob(blob => {
+        if (!connection) return;
+    connection.send(blob);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+});
+}
 
 
 
@@ -559,6 +682,7 @@ brushColor = colorInput.value;
 
 
 onFirstStart();  // приложение запускается в базовом варианте
+tick();
 window.addEventListener('beforeunload', () => {
     connection.close(1000);
 });
